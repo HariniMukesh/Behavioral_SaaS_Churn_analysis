@@ -556,9 +556,9 @@ This suggests that onboarding experience, early product value,
 and initial customer satisfaction may play a critical role in
 long-term retention.*/
 
-
--- Step 19: churned customers and currently active customers
-
+/* ===========================================================
+Step 19: churned customers and currently active customers
+==============================================================*/
 -- customer acquisition by year
 
 SELECT 
@@ -632,4 +632,174 @@ This suggests that product capability gaps and customer support
 experience may be the most critical drivers of revenue loss.
 Addressing these areas could significantly improve retention.*/
 
+/* =====================================================
+Step 21: Support experience vs churn
+Goal: Compare support experience between churned
+and active customers
+========================================================*/
+
+SELECT 
+    CASE 
+        WHEN ce.account_id IS NULL THEN 'active'
+        ELSE 'churned'
+    END AS customer_status,
+    
+    AVG(st.first_response_time_minutes) AS avg_first_response_time,
+    AVG(st.resolution_time_hours) AS avg_resolution_time,
+    AVG(st.satisfaction_score) AS avg_satisfaction_score
+
+FROM support_tickets st
+LEFT JOIN churn_events ce
+    ON st.account_id = ce.account_id
+
+GROUP BY customer_status;
+
+/* Observation: 
+Support response speed and resolution time do not strongly differentiate churned vs active customers.
+Customer support performance does not appear to be a major driver of churn in this dataset.*/
+
+-- Escalation rate by customer churn status
+SELECT 
+    CASE 
+        WHEN ce.account_id IS NULL THEN 'active'
+        ELSE 'churned'
+    END AS customer_status,    
+    COUNT(*) AS total_tickets,
+    SUM(st.escalation_flag) AS escalated_tickets,    
+    ROUND(
+        SUM(st.escalation_flag) / COUNT(*) * 100,
+        2
+    ) AS escalation_rate_percent
+
+FROM support_tickets st
+LEFT JOIN churn_events ce
+    ON st.account_id = ce.account_id
+
+GROUP BY customer_status;
+
+/* Observation:
+Customers who experience severe issues are more likely to churn.
+Escalation rate is higher for churned customers.
+5.36% vs 3.97%*/
+
+-- Plan change behavior before churn ?
+
+SELECT 
+    COUNT(*) AS total_churn_events,
+    
+    SUM(preceding_upgrade_flag) AS churn_after_upgrade,
+    
+    SUM(preceding_downgrade_flag) AS churn_after_downgrade
+
+FROM churn_events;
+-- A significant portion of customers churn shortly after upgrading their plan.
+
+/*Customers actively use the product but experience higher error rates and occasional severe issues. 
+Feature limitations and unmet expectations, especially after upgrading plans, contribute significantly to churn. 
+These feature-related churn events represent the largest source of revenue loss for the business.*/
+
+-- =====================================================
+-- MODEL DATASET (CLEAN VERSION)
+-- One row per account with behavioral signals
+-- =====================================================
+
+WITH usage_metrics AS (
+
+    SELECT
+        s.account_id,
+        SUM(fu.usage_count) AS total_usage,
+        SUM(fu.error_count) AS total_errors,
+        COUNT(DISTINCT fu.feature_name) AS features_used
+    FROM subscriptions s
+    LEFT JOIN feature_usage fu
+        ON s.subscription_id = fu.subscription_id
+    GROUP BY s.account_id
+
+),
+
+ticket_metrics AS (
+
+    SELECT
+        account_id,
+        COUNT(ticket_id) AS ticket_count,
+        AVG(satisfaction_score) AS avg_satisfaction_score
+    FROM support_tickets
+    GROUP BY account_id
+
+)
+
+SELECT
+    a.account_id,
+    a.plan_tier,
+    a.seats,
+
+    COALESCE(u.total_usage,0) AS total_usage,
+    COALESCE(u.total_errors,0) AS total_errors,
+    COALESCE(u.features_used,0) AS features_used,
+
+    COALESCE(t.ticket_count,0) AS ticket_count,
+    COALESCE(t.avg_satisfaction_score,0) AS avg_satisfaction_score,
+
+    a.churn_flag
+
+FROM accounts a
+
+LEFT JOIN usage_metrics u
+    ON a.account_id = u.account_id
+
+LEFT JOIN ticket_metrics t
+    ON a.account_id = t.account_id;
+
+
+CREATE VIEW churn_model_dataset AS
+WITH usage_metrics AS (
+
+    SELECT
+        s.account_id,
+        SUM(fu.usage_count) AS total_usage,
+        SUM(fu.error_count) AS total_errors,
+        COUNT(DISTINCT fu.feature_name) AS features_used
+    FROM subscriptions s
+    LEFT JOIN feature_usage fu
+        ON s.subscription_id = fu.subscription_id
+    GROUP BY s.account_id
+
+),
+
+ticket_metrics AS (
+
+    SELECT
+        account_id,
+        COUNT(ticket_id) AS ticket_count,
+        AVG(satisfaction_score) AS avg_satisfaction_score
+    FROM support_tickets
+    GROUP BY account_id
+
+)
+
+SELECT
+    a.account_id,
+    a.plan_tier,
+    a.seats,
+
+    COALESCE(u.total_usage,0) AS total_usage,
+    COALESCE(u.total_errors,0) AS total_errors,
+    COALESCE(u.features_used,0) AS features_used,
+
+    COALESCE(t.ticket_count,0) AS ticket_count,
+    COALESCE(t.avg_satisfaction_score,0) AS avg_satisfaction_score,
+
+    a.churn_flag
+
+FROM accounts a
+
+LEFT JOIN usage_metrics u
+    ON a.account_id = u.account_id
+
+LEFT JOIN ticket_metrics t
+    ON a.account_id = t.account_id;
+
+SELECT count(*) FROM churn_model_dataset;
+
+SELECT * FROM churn_model_dataset;
 
