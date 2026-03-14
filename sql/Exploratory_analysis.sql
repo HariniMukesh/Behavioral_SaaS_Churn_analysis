@@ -803,3 +803,105 @@ SELECT count(*) FROM churn_model_dataset;
 
 SELECT * FROM churn_model_dataset;
 
+
+CREATE VIEW vw_executive_metrics AS
+SELECT
+    COUNT(DISTINCT a.account_id) AS total_customers,
+
+    SUM(CASE 
+        WHEN s.end_date IS NULL THEN 1 
+        ELSE 0 
+    END) AS active_customers,
+
+    ROUND(
+        COUNT(DISTINCT ce.account_id) / COUNT(DISTINCT a.account_id) * 100,
+        2
+    ) AS churn_rate,
+
+    ROUND(SUM(s.mrr_amount),2) AS total_mrr,
+
+    ROUND(
+        SUM(s.mrr_amount) / COUNT(DISTINCT a.account_id),
+        2
+    ) AS arpa
+
+FROM accounts a
+LEFT JOIN subscriptions s 
+ON a.account_id = s.account_id
+LEFT JOIN churn_events ce 
+ON a.account_id = ce.account_id
+WHERE s.end_date IS NULL;
+
+select * from vw_executive_metrics;
+
+
+
+DROP VIEW IF EXISTS vw_executive_metrics;
+
+CREATE VIEW vw_executive_metrics AS
+
+WITH latest_sub AS (
+    SELECT
+        account_id,
+        MAX(start_date) AS latest_start
+    FROM subscriptions
+    GROUP BY account_id
+)
+
+SELECT
+    (SELECT COUNT(*) FROM accounts) AS total_customers,
+
+    (
+        SELECT COUNT(*)
+        FROM latest_sub l
+        JOIN subscriptions s
+        ON l.account_id = s.account_id
+        AND l.latest_start = s.start_date
+        WHERE s.end_date IS NULL
+    ) AS active_customers,
+
+    (
+        SELECT ROUND(
+            COUNT(DISTINCT account_id) /
+            (SELECT COUNT(*) FROM accounts), 4
+        )
+        FROM churn_events
+    ) AS churn_rate,
+
+    (
+        SELECT SUM(s.mrr_amount)
+        FROM latest_sub l
+        JOIN subscriptions s
+        ON l.account_id = s.account_id
+        AND l.latest_start = s.start_date
+        WHERE s.end_date IS NULL
+    ) AS total_mrr,
+
+    (
+        SELECT ROUND(
+            SUM(s.mrr_amount) /
+            COUNT(*),
+            2
+        )
+        FROM latest_sub l
+        JOIN subscriptions s
+        ON l.account_id = s.account_id
+        AND l.latest_start = s.start_date
+        WHERE s.end_date IS NULL
+    ) AS arpa;
+    
+    select * from vw_executive_metrics;
+    
+    CREATE VIEW  vw_churn_lifecycle AS
+    SELECT
+         ce.account_id,
+         CASE 
+             WHEN DATEDIFF(ce.churn_date, a.signup_date) <= 90 THEN 'Early Churn'
+             WHEN DATEDIFF(ce.churn_date, a.signup_date) <= 365 THEN 'Mid-Term Churn'
+             ELSE 'Late Churn'
+		END AS churn_stage
+	FROM churn_events ce
+    JOIN accounts a 
+    ON ce.account_id = a.account_id;
+    
+    select * from vw_churn_lifecycle limit 10;
