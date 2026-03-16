@@ -260,7 +260,10 @@ FROM (
         ON a.account_id = st.account_id
     GROUP BY a.account_id
 ) ticket_counts
-LEFT JOIN churn_events ce
+LEFT JOIN (
+    SELECT DISTINCT account_id
+    FROM churn_events
+) ce
     ON ticket_counts.account_id = ce.account_id
 GROUP BY customer_status;
 
@@ -290,9 +293,13 @@ LEFT JOIN subscriptions s
      ON a.account_id = s.account_id
 LEFT JOIN feature_usage fu
      ON s.subscription_id = fu.subscription_id
-LEFT JOIN churn_events ce 
-     ON a.account_id = ce.account_id
+LEFT JOIN (
+    SELECT DISTINCT account_id
+    FROM churn_events
+) ce
+    ON a.account_id = ce.account_id
 GROUP BY a.account_id;
+
 
 -- Average enagement by customer status
 SELECT 
@@ -313,9 +320,12 @@ FROM (
         ON a.account_id = s.account_id
     LEFT JOIN feature_usage fu
         ON s.subscription_id = fu.subscription_id
-    LEFT JOIN churn_events ce
-        ON a.account_id = ce.account_id
-    GROUP BY a.account_id
+LEFT JOIN (
+            SELECT DISTINCT account_id
+            FROM churn_events
+        ) ce
+            ON a.account_id = ce.account_id
+        GROUP BY a.account_id
 ) engagement_summary
 GROUP BY customer_status;
 
@@ -350,21 +360,27 @@ FROM (
          ON a.account_id = s.account_id
 	LEFT JOIN feature_usage fu
          ON s.subscription_id = fu.subscription_id
-	LEFT JOIN churn_events ce
-         ON a.account_id = ce.account_id
+	LEFT JOIN (
+            SELECT DISTINCT account_id
+            FROM churn_events
+        ) ce
+            ON a.account_id = ce.account_id
 	GROUP BY a.account_id
 ) error_summary
 GROUP BY customer_status;
 
 /* Observation:
-Churned customers experience significantly higher product error counts
-compared to active customers.
+After correcting for duplicate churn events per account, churned 
+customers show only marginally higher product error counts than 
+active customers (28.39 vs 27.79).
 
-Avg errors (churned): ~48
-Avg errors (active):  ~28
+The earlier observation of significantly higher errors in churned 
+customers was an artifact of duplicate rows from accounts with 
+multiple churn events inflating the average.
 
-This suggests product reliability issues may contribute to churn,
-making error frequency a strong candidate feature for churn prediction. */
+This suggests product error frequency alone is not a strong 
+differentiator between churned and active customers, and should 
+not be relied upon as a standalone churn signal. */
 
 /* =====================================================
 Step 11: Feature diversity per customer
@@ -386,9 +402,12 @@ LEFT JOIN subscriptions s
     ON a.account_id = s.account_id
 LEFT JOIN feature_usage fu
     ON s.subscription_id = fu.subscription_id
-LEFT JOIN churn_events ce
+LEFT JOIN (
+    SELECT DISTINCT account_id
+    FROM churn_events
+) ce
     ON a.account_id = ce.account_id
-GROUP BY a.account_id order by unique_features_used asc limit 5;
+GROUP BY a.account_id;
 
 select * from churn_events where account_id = 'A-751bd4'; 
 -- 40 feature usage - reason_code: Support - Feedback_text: too expensive
@@ -412,9 +431,12 @@ FROM (
         ON a.account_id = s.account_id
     LEFT JOIN feature_usage fu
         ON s.subscription_id = fu.subscription_id
-    LEFT JOIN churn_events ce
-        ON a.account_id = ce.account_id
-    GROUP BY a.account_id
+    LEFT JOIN (
+            SELECT DISTINCT account_id
+            FROM churn_events
+        ) ce
+            ON a.account_id = ce.account_id
+        GROUP BY a.account_id
 ) feature_summary
 GROUP BY customer_status;
 
